@@ -4,6 +4,7 @@
 --   Type digits on a value row to enter an exact number, Enter to confirm.
 -- Mouse: left-click toggles/applies, wheel changes the value (Shift/Ctrl too).
 -- F2 (menu closed): max out the roster unit under the mouse cursor.
+-- F3 (menu closed): the unit under the cursor absorbs all weaker Common/Uncommon units of its class.
 -- This file is hot-reloaded when saved while the game is running.
 -- The odds features are adapted from Slotbound OddsMod by TokioKaze (MIT), see THIRD_PARTY_NOTICES.md.
 local DIR = (debug.getinfo(1, "S").source:sub(2):match("^(.*[/\\])")) or ""
@@ -750,6 +751,89 @@ local function maxOutHovered()
   toast(ok and "Unit maxed out (rank " .. tostring(u.rank) .. ")" or ("Unit " .. (why or "not changed")))
 end
 
+---------------------------------------------------------------- auto merge (F3)
+-- The hovered unit absorbs every weaker Common/Uncommon unit of its class.
+-- Uses the game's own absorb: absorb mode on, victim dropped onto the target.
+-- One victim at a time, because the game plays an absorb animation for each.
+local MERGE_GRADES = { normal = true, advanced = true }
+local function unitPower(u)
+  local s = type(u.stats) == "table" and u.stats or {}
+  return (tonumber(s.atk) or 0) * (tonumber(s.hp) or 0)
+end
+local function inRoster(b, u)
+  for _, x in ipairs(b.rosterUnits) do if x == u then return true end end
+  return false
+end
+
+-- true while the game shows an absorb window (e.g. a new imprint) that waits for the player
+local function absorbWindowOpen()
+  local im = P["src.ui.imprint"]
+  return type(im) == "table" and type(im._modalHit) == "table" and im._modalHit.active == true
+end
+
+local function mergeHovered()
+  if M.merge then toast("Merge already running"); return end
+  local b = bf()
+  if not (b and type(b.rosterUnits) == "table" and type(b.dropRoster) == "function") then toast("No units (start a run first)"); return end
+  if b.mode == "battle" then toast("Can't merge during a battle"); return end
+  if absorbWindowOpen() then toast("Close the absorb window first"); return end
+  local t = unitUnderCursor()
+  if not t then toast("No unit under the cursor"); return end
+  if t.pendingRank then toast("Rank up ready: promote this unit first, then press F3 again"); return end
+  local tp, list = unitPower(t), {}
+  for _, u in ipairs(b.rosterUnits) do
+    if u ~= t and u.sym == t.sym and MERGE_GRADES[u.grade or "normal"] and unitPower(u) < tp then list[#list + 1] = u end
+  end
+  if #list == 0 then toast("Nothing to merge (no weaker Common/Uncommon unit of this class)"); return end
+  table.sort(list, function(a, c) return unitPower(a) < unitPower(c) end)
+  M.merge = { t = t, list = list, i = 0, done = 0, am = b.absorbMode }
+  toast("Merging " .. #list .. " unit(s)...")
+end
+
+local function stepMerge()
+  local m = M.merge
+  if not m then return end
+  local b = bf()
+  local now = love.timer.getTime()
+  local function putBack(v) if v and m.ox then v.x, v.y = m.ox, m.oy end end
+  local function finish(msg)
+    if m.cur and b and inRoster(b, m.cur) then putBack(m.cur) end
+    M.merge = nil
+    if b then b.absorbMode = m.am or false end
+    toast(msg)
+  end
+  if not (b and type(b.rosterUnits) == "table") then M.merge = nil; return end
+  if not inRoster(b, m.t) then finish("Merge stopped (target unit is gone)"); return end
+  if b.mode == "battle" then finish("Merge stopped (battle started), merged " .. m.done); return end
+  local cur = m.cur
+  if cur then
+    if not inRoster(b, cur) then m.done = m.done + 1; m.cur = nil
+    elseif absorbWindowOpen() then m.deadline = now + 6; return -- the player has to answer the game's window first
+    elseif now < m.deadline then return
+    else putBack(cur); m.cur = nil end -- not absorbed in time: put it back
+  end
+  -- never drop the next unit while the game waits for the player
+  if absorbWindowOpen() then return end
+  -- reaching a new rank needs a class choice; absorbing more on top of it locks the game up
+  if m.t.pendingRank then
+    finish("Merged " .. m.done .. ", rank up ready: promote the unit, then press F3 again")
+    return
+  end
+  while true do
+    m.i = m.i + 1
+    local v = m.list[m.i]
+    if not v then finish("Merged " .. m.done .. " unit(s) into " .. tostring(m.t.sym) .. " (absorb Lv " .. tostring(m.t.absorbLV) .. ")"); return end
+    if inRoster(b, v) then
+      m.ox, m.oy = v.x, v.y
+      b.absorbMode = true
+      v.x, v.y = m.t.x, m.t.y
+      local ok, e = pcall(b.dropRoster, b, v)
+      if ok then m.cur, m.deadline = v, now + 6; return end
+      putBack(v); log("merge drop error: " .. tostring(e))
+    end
+  end
+end
+
 ---------------------------------------------------------------- menu layout (tabs)
 -- toggle rows: key (+ optional vkey value); set rows: action + vkey; info = help line
 local TABS = {
@@ -1093,6 +1177,11 @@ function W_.keypressed(orig)
       if not ok then log("max out error: " .. tostring(e)) end
       return
     end
+    if key == "f3" and not M.open then
+      local ok, e = pcall(mergeHovered)
+      if not ok then log("merge error: " .. tostring(e)) end
+      return
+    end
     if M.open then
       local r = curRows()[M.sel]
       if M.input then
@@ -1248,4 +1337,8 @@ do
 end
 
 log("menu loaded (F1 / Insert)")
-return function() ensureWrapped() end
+return function()
+  ensureWrapped()
+  local ok, e = pcall(stepMerge)
+  if not ok then M.merge = nil; log("merge error: " .. tostring(e)) end
+end
