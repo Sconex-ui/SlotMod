@@ -420,6 +420,16 @@ local function applyCheats()
   if S.coreReroll then
     local r = tonumber(rawget(_G, "coreFreeRerollsRemaining"))
     if r and r < 1 then rawset(_G, "coreFreeRerollsRemaining", 1) end
+    -- the core screen decides right after each reroll whether the next one is free
+    -- (rerollCost 0 + _usesUpgradeFreeReroll); keep both open/deferred screens on "free"
+    if ui then
+      for _, cs in ipairs({ ui._coreSelect, ui._deferredCoreSelect }) do
+        if type(cs) == "table" and cs.rerollCost ~= nil then
+          if cs.rerollCost ~= 0 then cs.rerollCost = 0 end
+          if cs._usesUpgradeFreeReroll == false then cs._usesUpgradeFreeReroll = true end
+        end
+      end
+    end
   end
   local sp = tonumber(rawget(_G, "spinsLeft"))
   if sp then
