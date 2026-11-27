@@ -3,6 +3,7 @@ SlotMod - mod menu for Slotbound (no game files are changed)
 Start:   SlotMod\SlotMod.exe  (starts the game through Steam, or attaches if it is already running;
          a different launcher can be set with launch= in SlotMod.ini)
 Menu:    F1 or Insert in game
+F2:      max out the roster unit under the mouse cursor (menu closed)
 Keys:    Tab / PageUp / PageDown switch tabs, Up/Down select, Enter/Space toggle/apply,
          Left/Right change value (Shift = 10x step, Ctrl = 100x step), type digits for an exact value, Esc close
 Mouse:   click switches, -/+ and APPLY; wheel over a value changes it; drag the title bar to move

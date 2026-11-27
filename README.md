@@ -46,6 +46,7 @@ An in-game mod menu for **Slotbound** (Windows). Every cheat is a switch you can
 - Enemy HP, damage and move speed multipliers
 - Freeze enemies, one-hit kills
 - Ally damage and attack speed multipliers, invincible allies
+- Max out units: hover a unit on your roster and press **F2** to raise it to max rank (absorb level and stats scale with it), or max out all units from the menu
 
 **Odds** *
 - Slot machine rarity: pin the chance of Uncommon / Rare / Legendary / Prismatic units; unpinned rarities share the rest. The help line shows the resulting odds live.
@@ -66,6 +67,7 @@ Features marked * are adapted from [Slotbound OddsMod](https://github.com/TokioK
 | Action | Keyboard | Mouse |
 |---|---|---|
 | Open / close menu | **F1** or **Insert** | |
+| Max out the unit under the cursor | **F2** (menu closed) | hover the unit |
 | Switch tab | Tab / Shift+Tab, PageUp / PageDown | click a tab |
 | Select row | Up / Down | hover |
 | Toggle / apply | Enter or Space | click the switch / APPLY |

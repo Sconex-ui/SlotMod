@@ -3,6 +3,7 @@
 --   Left/Right change a value (Shift = x10 step, Ctrl = x100 step).
 --   Type digits on a value row to enter an exact number, Enter to confirm.
 -- Mouse: left-click toggles/applies, wheel changes the value (Shift/Ctrl too).
+-- F2 (menu closed): max out the roster unit under the mouse cursor.
 -- This file is hot-reloaded when saved while the game is running.
 -- The odds features are adapted from Slotbound OddsMod by TokioKaze (MIT), see THIRD_PARTY_NOTICES.md.
 local DIR = (debug.getinfo(1, "S").source:sub(2):match("^(.*[/\\])")) or ""
@@ -669,6 +670,86 @@ local function applyPreset(i)
   S.stoneBoost = p.stone ~= nil; if p.stone then S.stoneBoostV = p.stone end
 end
 
+---------------------------------------------------------------- max out units
+local function toast(msg)
+  M.toast, M.toastT = msg, love.timer.getTime() + 2.5
+  log(msg)
+end
+
+-- roster unit nearest to the mouse cursor (game space = screen / screenScale)
+local function unitUnderCursor()
+  local b = bf()
+  if not (b and type(b.rosterUnits) == "table") then return nil end
+  local mx, my = love.mouse.getPosition()
+  local sc = tonumber(rawget(_G, "screenScale")) or 1
+  local gx = (mx - (tonumber(rawget(_G, "screenOffsetX")) or 0)) / sc
+  local gy = (my - (tonumber(rawget(_G, "screenOffsetY")) or 0)) / sc
+  local best, bd
+  for _, u in ipairs(b.rosterUnits) do
+    if type(u) == "table" and tonumber(u.x) and tonumber(u.y) then
+      -- unit position is at its feet; the sprite is above it
+      local dx, dy = gx - u.x, gy - (u.y - 12)
+      local d = dx * dx + dy * dy
+      if not bd or d < bd then best, bd = u, d end
+    end
+  end
+  if best and bd <= 28 * 28 then return best end
+end
+
+local function maxOutUnit(u)
+  if type(u) ~= "table" then return false end
+  local E = P["src.data.constants"] and P["src.data.constants"].evolution
+  local grade = u.grade or "normal"
+  local maxRank = (E and E.maxRankByGrade and E.maxRankByGrade[grade]) or 3
+  local r0, lv0 = tonumber(u.rank) or 1, tonumber(u.absorbLV) or 1
+  local atk0, hp0 = u.stats and u.stats.atk, u.stats and u.stats.hp
+  if r0 >= maxRank then return false, "already max rank" end
+  -- 1) the game's own rank-up (used by a Fate Stone): recalculates everything itself
+  local raise = rawget(_G, "__slotStoneRaiseRank")
+  if type(raise) == "function" then
+    for _ = 1, maxRank do
+      local before = tonumber(u.rank) or 1
+      if before >= maxRank then break end
+      local ok = pcall(raise, u, 1)
+      if not ok or (tonumber(u.rank) or 1) <= before then break end
+    end
+  end
+  -- 2) fallback: rank, absorb level and rank multiplier by hand
+  local r1 = tonumber(u.rank) or 1
+  if r1 < maxRank then
+    local th = E and E.rankThresholds and E.rankThresholds[grade]
+    local mul = E and E.rankMultipliers and E.rankMultipliers[grade]
+    if th and th[maxRank] and (tonumber(u.absorbLV) or 1) < th[maxRank] then u.absorbLV = th[maxRank] end
+    if mul and mul[r1] and mul[maxRank] and type(u.stats) == "table" then
+      local f = mul[maxRank] / mul[r1]
+      if tonumber(u.stats.atk) then u.stats.atk = u.stats.atk * f end
+      if tonumber(u.stats.hp) then u.stats.hp = u.stats.hp * f end
+    end
+    u.rank = maxRank
+    M.lastMaxWay = "manual"
+  else
+    M.lastMaxWay = "game"
+  end
+  log(("max out %s %s: rank %s->%s lv %s->%s atk %s->%s hp %s->%s (%s)"):format(tostring(u.sym), grade, r0, tostring(u.rank),
+    lv0, tostring(u.absorbLV), tostring(atk0), tostring(u.stats and u.stats.atk), tostring(hp0), tostring(u.stats and u.stats.hp), M.lastMaxWay))
+  return true
+end
+
+local function maxOutAll()
+  local b = bf()
+  if not (b and type(b.rosterUnits) == "table") then toast("No units (start a run first)"); return end
+  local n = 0
+  for _, u in ipairs(b.rosterUnits) do if maxOutUnit(u) then n = n + 1 end end
+  toast(n > 0 and ("Maxed out " .. n .. " unit(s)") or "All units are already max rank")
+end
+
+local function maxOutHovered()
+  local u = unitUnderCursor()
+  if not u then toast("No unit under the cursor"); return end
+  local ok, why = maxOutUnit(u)
+  toast(ok and "Unit maxed out (rank " .. tostring(u.rank) .. ")" or ("Unit " .. (why or "not changed")))
+end
+
 ---------------------------------------------------------------- menu layout (tabs)
 -- toggle rows: key (+ optional vkey value); set rows: action + vkey; info = help line
 local TABS = {
@@ -721,6 +802,9 @@ local TABS = {
     { key = "aDmg", label = "Ally damage", vkey = "aDmgV", min = 0.1, max = 100, step = 0.1, pre = "x", info = "Multiplies ally damage." },
     { key = "aAspd", label = "Ally attack speed", vkey = "aAspdV", min = 0.1, max = 10, step = 0.1, pre = "x", info = "Multiplies ally attack speed." },
     { key = "aInv", label = "Invincible allies", info = "Allies are healed to full every frame." },
+    { head = "Units" },
+    { label = "Max out all units", info = "Every unit on your roster goes to max rank. Tip: hover one unit and press F2.",
+      action = function() maxOutAll() end },
   } },
   { name = "Odds", rows = {
     { head = "Slot machine rarity (chance per unit)" },
@@ -977,6 +1061,23 @@ end
 function W_.draw(orig)
   return function(...)
     local r = orig(...)
+    if M.toast then
+      if love.timer.getTime() > (M.toastT or 0) then M.toast = nil
+      else
+        pcall(function()
+          local lg = love.graphics
+          lg.push("all"); lg.origin(); lg.setShader(); lg.setCanvas()
+          font = font or lg.newFont(14)
+          lg.setFont(font)
+          local w = font:getWidth(M.toast) + 24
+          local x = (lg.getWidth() - w) / 2
+          lg.setColor(0.07, 0.07, 0.10, 0.92); lg.rectangle("fill", x, 18, w, 28, 6, 6)
+          lg.setColor(0.95, 0.78, 0.35, 1); lg.rectangle("line", x + 0.5, 18.5, w - 1, 27, 6, 6)
+          lg.setColor(1, 1, 1, 1); lg.print(M.toast, x + 12, 24)
+          lg.pop()
+        end)
+      end
+    end
     if M.open then
       local ok, e = pcall(drawMenu)
       if not ok then log("draw error: " .. tostring(e)); pcall(love.graphics.pop) end
@@ -987,6 +1088,11 @@ end
 function W_.keypressed(orig)
   return function(key, ...)
     if key == "f1" or key == "insert" then M.open = not M.open; M.input = nil; return end
+    if key == "f2" and not M.open then
+      local ok, e = pcall(maxOutHovered)
+      if not ok then log("max out error: " .. tostring(e)) end
+      return
+    end
     if M.open then
       local r = curRows()[M.sel]
       if M.input then
