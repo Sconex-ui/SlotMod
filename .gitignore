@@ -1,0 +1,19 @@
+# Only the mod is versioned; everything else here is the game.
+/*
+!/.gitignore
+!/README.md
+!/SlotMod/
+!/slotmod_src/
+!/images/
+
+# runtime / build output
+/SlotMod/*.exe
+/SlotMod/*.dll
+/SlotMod/slotmod_log.txt
+/SlotMod/slotmod_settings.txt
+/SlotMod/slotmod_unlock_backup.txt
+/slotmod_src/*.obj
+/slotmod_src/*.exp
+/slotmod_src/*.lib
+/slotmod_src/*.bak
+/SlotMod/SlotMod.ini
