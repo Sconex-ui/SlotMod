@@ -5,6 +5,7 @@
 !/SlotMod/
 !/slotmod_src/
 !/images/
+!/THIRD_PARTY_NOTICES.md
 
 # runtime / build output
 /SlotMod/*.exe

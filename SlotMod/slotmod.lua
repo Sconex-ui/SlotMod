@@ -4,6 +4,7 @@
 --   Type digits on a value row to enter an exact number, Enter to confirm.
 -- Mouse: left-click toggles/applies, wheel changes the value (Shift/Ctrl too).
 -- This file is hot-reloaded when saved while the game is running.
+-- The odds features are adapted from Slotbound OddsMod by TokioKaze (MIT), see THIRD_PARTY_NOTICES.md.
 local DIR = (debug.getinfo(1, "S").source:sub(2):match("^(.*[/\\])")) or ""
 local P = package.loaded
 
@@ -31,6 +32,12 @@ local S = {
   eFreeze = false, eOneHit = false,
   aDmg = false, aDmgV = 2, aAspd = false, aAspdV = 1.5, aInv = false,
   unlockUpg = false, unlockStages = false,
+  oddsPresetV = 1, rAdv = false, rAdvV = 20, rRare = false, rRareV = 10, rLeg = false, rLegV = 5,
+  rPrism = false, rPrismV = 2, rLocked = false, stoneBoost = false, stoneBoostV = 4,
+  symW = false, symWV = 20, symA = false, symAV = 20, symS = false, symSV = 20,
+  symH = false, symHV = 15, symM = false, symMV = 15, symD = false, symDV = 10,
+  joker = false, jokerV = 5, jokerLine = false,
+  freeSpin = false, heartsSetV = 10, stoneReroll = false,
   blockLb = true,
 }
 local SETTINGS = DIR .. "slotmod_settings.txt"
@@ -402,6 +409,14 @@ local function applyCheats()
       end
     end
   end
+  if S.freeSpin then
+    local fc = tonumber(rawget(_G, "freeSpinCredits"))
+    if fc and fc < 1 then rawset(_G, "freeSpinCredits", 1); M.addedCredit = true end
+  elseif M.addedCredit then
+    M.addedCredit = nil
+    if tonumber(rawget(_G, "freeSpinCredits")) == 1 then rawset(_G, "freeSpinCredits", 0) end
+  end
+  if S.stoneReroll and ui and ui._stoneRerollUsed ~= nil then ui._stoneRerollUsed = nil end
   if S.coreReroll then
     local r = tonumber(rawget(_G, "coreFreeRerollsRemaining"))
     if r and r < 1 then rawset(_G, "coreFreeRerollsRemaining", 1) end
@@ -425,6 +440,223 @@ local function applyCheats()
     end
     applyEntities(b)
   end
+end
+
+---------------------------------------------------------------- odds
+-- Rarity / class-symbol / Joker / Fate Stone odds.
+-- Adapted from "Slotbound OddsMod" by TokioKaze (MIT License, Copyright (c) 2026 TokioKaze),
+-- https://github.com/TokioKaze/-Slotbound-OddsMod- . See THIRD_PARTY_NOTICES.md.
+local GRADES = { "normal", "advanced", "rare", "legendary", "prism" }
+local SYMBOLS = { "W", "A", "S", "H", "M", "D" }
+local JOKER_MAX = 0.05 -- the game caps the Joker chance at 5%
+local function fmtPct(x) return (string.format("%.2f", x * 100):gsub("0+$", ""):gsub("%.$", "")) .. "%" end
+
+-- persistent across hot reloads: hooks are installed once and read the current settings at call time
+local ODDS = rawget(_G, "__SLOTMOD_ODDS") or {}
+rawset(_G, "__SLOTMOD_ODDS", ODDS)
+
+-- base: the game's weights; targets: { key = probability 0..1 } to pin; the other keys share
+-- the remaining probability in their original proportions. respect: keys at 0% (locked) stay 0%.
+local function transformKeys(base, keys, targets, respect)
+  local out = {}
+  for k, v in pairs(base) do out[k] = v end
+  if not targets or not next(targets) then return out end
+  local p, sum = {}, 0
+  for _, g in ipairs(keys) do
+    local v = tonumber(base[g]) or 0
+    if v ~= v or v < 0 then v = 0 end
+    p[g] = v; sum = sum + v
+  end
+  if sum <= 0 then return out end
+  for _, g in ipairs(keys) do p[g] = p[g] / sum end
+  local tgt, T = {}, 0
+  for _, g in ipairs(keys) do
+    local t = targets[g]
+    if t ~= nil and not (respect and p[g] <= 0 and t > 0) then tgt[g] = t; T = T + t end
+  end
+  if T <= 0 and not next(tgt) then return out end
+  if T > 1 then for g, t in pairs(tgt) do tgt[g] = t / T end; T = 1 end
+  local rest = 0
+  for _, g in ipairs(keys) do if tgt[g] == nil then rest = rest + p[g] end end
+  if rest <= 0 and T <= 0 then return out end
+  local R = math.max(0, 1 - T)
+  for _, g in ipairs(keys) do
+    if tgt[g] ~= nil then out[g] = (rest > 0 or T <= 0) and tgt[g] or tgt[g] / T
+    elseif rest > 0 then out[g] = R * p[g] / rest
+    else out[g] = 0 end
+  end
+  return out
+end
+
+-- current settings, rebuilt from S on every call (S changes when the menu is used)
+ODDS.settings = function()
+  local slot = {}
+  if S.rAdv then slot.advanced = S.rAdvV / 100 end
+  if S.rRare then slot.rare = S.rRareV / 100 end
+  if S.rLeg then slot.legendary = S.rLegV / 100 end
+  if S.rPrism then slot.prism = S.rPrismV / 100 end
+  local sym = {}
+  for _, k in ipairs(SYMBOLS) do if S["sym" .. k] then sym[k] = S["sym" .. k .. "V"] / 100 end end
+  return {
+    slot = next(slot) and slot or nil, respect = not S.rLocked,
+    sym = next(sym) and sym or nil,
+    stoneMult = S.stoneBoost and S.stoneBoostV or nil,
+    joker = S.joker and math.max(0, math.min(JOKER_MAX, S.jokerV / 100)) or nil,
+    jokerLine = S.jokerLine,
+  }
+end
+ODDS.transformKeys = transformKeys
+
+local function installOdds()
+  local C = P["src.data.constants"]
+  -- slot rarity: proxy constants.unitGrades.probabilities (the upgrade code writes it in place)
+  local probs = type(C) == "table" and type(C.unitGrades) == "table" and C.unitGrades.probabilities
+  if type(probs) == "table" and not ODDS.slotDone then
+    local mt = getmetatable(probs)
+    if mt then
+      ODDS.slotDone = true
+      if not mt.__slotmod then log("slot rarity table already hooked by another mod; SlotMod rarity odds disabled") end
+    else
+      local shadow = {}
+      for k, v in pairs(probs) do shadow[k] = v end
+      for k in pairs(shadow) do rawset(probs, k, nil) end
+      -- the game writes advanced/rare/legendary/prism, reads advanced back to compute normal,
+      -- then writes normal: between those writes, reads return the raw values
+      local writing = false
+      setmetatable(probs, {
+        __slotmod = true,
+        __index = function(_, k)
+          if writing then
+            if k == "advanced" then return shadow[k] end
+            writing = false
+          end
+          local st = ODDS.settings and ODDS.settings()
+          if not (st and st.slot) then return shadow[k] end
+          local v = ODDS.transformKeys(shadow, GRADES, st.slot, st.respect)[k]
+          if v == nil then v = shadow[k] end
+          return v
+        end,
+        __newindex = function(_, k, v)
+          if k == "advanced" then writing = true elseif k == "normal" then writing = false end
+          shadow[k] = v
+        end,
+      })
+      ODDS.slotShadow = shadow
+      ODDS.slotDone = true
+      log("odds: slot rarity hooked")
+    end
+  end
+  -- class symbols: proxy the symbolWeights key of constants.slot (some cores swap the whole table)
+  local slotT = type(C) == "table" and C.slot
+  if type(slotT) == "table" and not ODDS.symDone then
+    ODDS.symDone = true
+    if getmetatable(slotT) then
+      log("constants.slot already hooked by another mod; SlotMod class odds disabled")
+    elseif type(rawget(slotT, "symbolWeights")) == "table" then
+      local held = rawget(slotT, "symbolWeights")
+      rawset(slotT, "symbolWeights", nil)
+      setmetatable(slotT, {
+        __slotmod = true,
+        __index = function(_, k)
+          if k ~= "symbolWeights" then return nil end
+          local st = ODDS.settings and ODDS.settings()
+          if not (st and st.sym) or type(held) ~= "table" then return held end
+          return ODDS.transformKeys(held, SYMBOLS, st.sym, true)
+        end,
+        __newindex = function(t, k, v)
+          if k == "symbolWeights" then held = v else rawset(t, k, v) end
+        end,
+      })
+      ODDS.symBase = function() return held end
+      log("odds: class symbols hooked")
+    end
+  end
+  -- Joker chance and forced Joker line
+  local cores = P["src.game.cores"]
+  if type(cores) == "table" then
+    if type(cores.getJokerChance) == "function" and cores.getJokerChance ~= ODDS.gjcWrap then
+      local o = cores.getJokerChance
+      ODDS.gjcWrap = function(...)
+        local st = ODDS.settings and ODDS.settings()
+        if st and st.joker then return st.joker end
+        return o(...)
+      end
+      cores.getJokerChance = ODDS.gjcWrap
+    end
+    if type(cores.prepareSpin) == "function" and cores.prepareSpin ~= ODDS.prepWrap then
+      local o = cores.prepareSpin
+      ODDS.prepWrap = function(...)
+        local r = o(...)
+        local st = ODDS.settings and ODDS.settings()
+        if st and type(r) == "table" then
+          if st.joker then r.jokerChance = st.joker end
+          if st.jokerLine then
+            -- the game's own forceJokerCells mechanism: Jokers on the whole middle row
+            local cells = {}
+            if type(r.forceJokerCells) == "table" then for _, c in ipairs(r.forceJokerCells) do cells[#cells + 1] = c end end
+            for col = 1, 3 do cells[#cells + 1] = { row = 2, col = col } end
+            r.forceJokerCells = cells
+          end
+        end
+        return r
+      end
+      cores.prepareSpin = ODDS.prepWrap
+    end
+  end
+  -- Fate Stones: scale legendary + prismatic weights in stone.effectiveProbs
+  local stone = P["src.game.stone"]
+  if type(stone) == "table" and type(stone.effectiveProbs) == "function" and stone.effectiveProbs ~= ODDS.stoneWrap then
+    local o = stone.effectiveProbs
+    ODDS.stoneWrap = function(...)
+      local r = o(...)
+      local st = ODDS.settings and ODDS.settings()
+      if not (st and st.stoneMult) or type(r) ~= "table" then return r end
+      local out, sum = {}, 0
+      for k, v in pairs(r) do out[k] = v end
+      for _, g in ipairs(GRADES) do
+        local v = tonumber(r[g]) or 0
+        if g == "legendary" or g == "prism" then v = v * st.stoneMult end
+        out[g] = v; sum = sum + v
+      end
+      if sum > 0 then for _, g in ipairs(GRADES) do out[g] = out[g] / sum end end
+      return out
+    end
+    stone.effectiveProbs = ODDS.stoneWrap
+  end
+end
+
+-- current effective slot rarity, for the help line
+local function slotOddsText()
+  local probs = ODDS.slotShadow
+  if not probs then return "" end
+  local st = ODDS.settings()
+  local out = st.slot and transformKeys(probs, GRADES, st.slot, st.respect) or probs
+  local sum = 0
+  for _, g in ipairs(GRADES) do sum = sum + (tonumber(out[g]) or 0) end
+  if sum <= 0 then return "" end
+  local n = { normal = "C", advanced = "U", rare = "R", legendary = "L", prism = "P" }
+  local parts = {}
+  for _, g in ipairs(GRADES) do parts[#parts + 1] = n[g] .. " " .. fmtPct((tonumber(out[g]) or 0) / sum) end
+  return "Now: " .. table.concat(parts, "  ")
+end
+
+local PRESETS = {
+  { name = "Original" },
+  { name = "Hard", leg = 1, prism = 0.3, stone = 1.5 },
+  { name = "Medium", leg = 2.5, prism = 0.8, stone = 2.5 },
+  { name = "Easy", leg = 5, prism = 2, stone = 4 },
+  { name = "Bliss", rare = 20, leg = 15, prism = 8, stone = 8 },
+}
+local PRESET_NAMES = {}
+for i, p in ipairs(PRESETS) do PRESET_NAMES[i] = p.name end
+local function applyPreset(i)
+  local p = PRESETS[i]
+  if not p then return end
+  S.rAdv = false
+  S.rRare = p.rare ~= nil; if p.rare then S.rRareV = p.rare end
+  S.rLeg = p.leg ~= nil; if p.leg then S.rLegV = p.leg end
+  S.rPrism = p.prism ~= nil; if p.prism then S.rPrismV = p.prism end
+  S.stoneBoost = p.stone ~= nil; if p.stone then S.stoneBoostV = p.stone end
 end
 
 ---------------------------------------------------------------- menu layout (tabs)
@@ -452,16 +684,20 @@ local TABS = {
     { key = "shopBig", label = "Shop size", vkey = "shopBigV", min = 3, max = 15, step = 1, info = "Items per shop roll (icons shrink to fit). Takes effect on the next reroll." },
     { key = "invBig", label = "Item inventory size", vkey = "invBigV", min = 1, max = 30, step = 1, info = "How many items you can hold." },
     { key = "rerollFree", label = "Fixed reroll cost", vkey = "rerollV", min = 0, max = 1000, step = 1, info = "Shop reroll always costs this many shards (0 = free)." },
-    { head = "Cores" },
+    { head = "Cores + Fate Stones" },
     { key = "coreReroll", label = "Unlimited free core rerolls", info = "Always keeps one free reroll on the core selection." },
+    { key = "stoneReroll", label = "Free Fate Stone rerolls", info = "Fate Stone rerolls stay available. (from OddsMod)" },
   } },
   { name = "Run", rows = {
     { head = "Slot machine" },
     { key = "spinLock", label = "Lock spins left", info = "Spins left never go down." },
     { key = "spinFix", label = "Fixed spin cost", vkey = "spinFixV", min = 0, max = 100000, step = 1, info = "Paid spins always cost this much; price no longer increases." },
     { key = "machineInf", label = "Unlimited shift / explosion", info = "The machine ability can be used again right away." },
+    { key = "freeSpin", label = "Free spins", info = "Always keeps one free spin credit, so spins cost nothing. (from OddsMod)" },
     { head = "General" },
-    { key = "god", label = "God mode", info = "Your base HP can't drop." },
+    { key = "god", label = "God mode", info = "Your base HP (hearts) can't drop." },
+    { label = "Set hearts", vkey = "heartsSetV", min = 1, max = 999, step = 1, info = "Sets your base HP (hearts) in the current run. (from OddsMod)",
+      action = function() local b = bf(); if b and tonumber(b.baseHP) then b.baseHP = S.heartsSetV; b._prevBaseHP = S.heartsSetV; lockHP = nil end end },
     { key = "speed", label = "Game speed", vkey = "speedV", min = 0.1, max = 10, step = 0.1, pre = "x", info = "Speeds up (or slows down) the whole game." },
   } },
   { name = "Combat", rows = {
@@ -475,6 +711,27 @@ local TABS = {
     { key = "aDmg", label = "Ally damage", vkey = "aDmgV", min = 0.1, max = 100, step = 0.1, pre = "x", info = "Multiplies ally damage." },
     { key = "aAspd", label = "Ally attack speed", vkey = "aAspdV", min = 0.1, max = 10, step = 0.1, pre = "x", info = "Multiplies ally attack speed." },
     { key = "aInv", label = "Invincible allies", info = "Allies are healed to full every frame." },
+  } },
+  { name = "Odds", rows = {
+    { head = "Slot machine rarity (chance per unit)" },
+    { label = "Preset", vkey = "oddsPresetV", min = 1, max = #PRESETS, step = 1, names = PRESET_NAMES,
+      info = "Pick a preset and click APPLY. Sets the rarity and Fate Stone rows below.",
+      action = function() applyPreset(S.oddsPresetV) end },
+    { key = "rAdv", label = "Uncommon", vkey = "rAdvV", min = 0, max = 100, step = 0.1, post = "%", info = slotOddsText },
+    { key = "rRare", label = "Rare", vkey = "rRareV", min = 0, max = 100, step = 0.1, post = "%", info = slotOddsText },
+    { key = "rLeg", label = "Legendary", vkey = "rLegV", min = 0, max = 100, step = 0.1, post = "%", info = slotOddsText },
+    { key = "rPrism", label = "Prismatic", vkey = "rPrismV", min = 0, max = 100, step = 0.1, post = "%", info = slotOddsText },
+    { key = "rLocked", label = "Allow locked rarities", info = "Also apply chances to rarities you haven't unlocked yet (normally they stay 0%)." },
+    { key = "stoneBoost", label = "Fate Stone L+P weight", vkey = "stoneBoostV", min = 0.1, max = 100, step = 0.1, pre = "x", info = "Multiplies the Legendary and Prismatic weights of every Fate Stone." },
+    { head = "Class symbols (chance per symbol)" },
+    { key = "symW", label = "Warrior", vkey = "symWV", min = 0, max = 100, step = 1, post = "%", info = "Pinned chance; unpinned classes share the rest." },
+    { key = "symA", label = "Archer", vkey = "symAV", min = 0, max = 100, step = 1, post = "%", info = "Pinned chance; unpinned classes share the rest." },
+    { key = "symS", label = "Spearman", vkey = "symSV", min = 0, max = 100, step = 1, post = "%", info = "Pinned chance; unpinned classes share the rest." },
+    { key = "symH", label = "Cavalry", vkey = "symHV", min = 0, max = 100, step = 1, post = "%", info = "Pinned chance; unpinned classes share the rest." },
+    { key = "symM", label = "Mage", vkey = "symMV", min = 0, max = 100, step = 1, post = "%", info = "Pinned chance; unpinned classes share the rest." },
+    { key = "symD", label = "Duelist", vkey = "symDV", min = 0, max = 100, step = 1, post = "%", info = "Pinned chance; unpinned classes share the rest." },
+    { key = "joker", label = "Joker chance", vkey = "jokerV", min = 0, max = 5, step = 0.1, post = "%", info = "Chance of a Joker symbol (the game caps it at 5%)." },
+    { key = "jokerLine", label = "Guaranteed Joker line", info = "Every spin puts Jokers on the whole middle row (summons a Joker unit)." },
   } },
   { name = "Unlocks", rows = {
     { head = "Reversible (OFF restores your old state)" },
@@ -637,7 +894,9 @@ local function drawMenu()
       if row.vkey then
         lg.setFont(font)
         local s
-        if i == M.sel and M.input then s = (row.pre or "") .. M.input .. "_" else s = (row.pre or "") .. fmtNum(S[row.vkey]) end
+        if i == M.sel and M.input then s = (row.pre or "") .. M.input .. "_" .. (row.post or "")
+        elseif row.names then s = row.names[S[row.vkey]] or "?"
+        else s = (row.pre or "") .. fmtNum(S[row.vkey]) .. (row.post or "") end
         local vw = math.max(56, font:getWidth(s) + 12)
         local plus = { right - 18, y + 2, 18, ROWH - 6 }
         local box = { plus[1] - 2 - vw, y + 2, vw, ROWH - 6 }
@@ -662,7 +921,9 @@ local function drawMenu()
   lg.setFont(fontSmall)
   local sel = curRows()[M.sel]
   lg.setColor(C.dim)
-  lg.print((sel and sel.info) or "", x0 + PADX + 2, fy + 3)
+  local info = sel and sel.info
+  if type(info) == "function" then local ok, t = pcall(info); info = ok and t or "" end
+  lg.print(info or "", x0 + PADX + 2, fy + 3)
   local g, c, j = getGems(), getGold(), getShards()
   lg.setColor(C.text)
   lg.print(("Gems %s    Gold %s    Shards %s"):format(g and math.floor(g) or "-", c and math.floor(c) or "-", j and math.floor(j) or "-"),
@@ -822,6 +1083,8 @@ local function ensureWrapped()
     M.lbWrap = function(...) if S.blockLb then return false end return o(...) end
     lb.submit = M.lbWrap
   end
+  local okO, eO = pcall(installOdds)
+  if not okO and not M.oddsErr then M.oddsErr = true; log("odds install error: " .. tostring(eO)) end
   -- bigger item shop: first argument of item.offer is the number of offers
   local it = P["src.game.item"]
   if type(it) == "table" and type(it.offer) == "function" and it.offer ~= M.offerWrap then

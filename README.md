@@ -16,9 +16,9 @@ An in-game mod menu for **Slotbound** (Windows). Every cheat is a switch you can
 |---|---|---|
 | ![Money tab](images/menu-money.png) | ![Shop tab](images/menu-shop.png) | ![Run tab](images/menu-run.png) |
 
-| Combat | Unlocks |
-|---|---|
-| ![Combat tab](images/menu-combat.png) | ![Unlocks tab](images/menu-unlocks.png) |
+| Combat | Odds | Unlocks |
+|---|---|---|
+| ![Combat tab](images/menu-combat.png) | ![Odds tab](images/menu-odds.png) | ![Unlocks tab](images/menu-unlocks.png) |
 
 **Money**
 - Gems (Originite): lock, gain multiplier, set an exact amount
@@ -32,18 +32,30 @@ An in-game mod menu for **Slotbound** (Windows). Every cheat is a switch you can
 - Item inventory size
 - Fixed shop reroll cost (0 = free)
 - Unlimited free core rerolls
+- Free Fate Stone rerolls *
 
 **Run**
 - Lock spins left
 - Fixed spin cost (the price no longer goes up after every paid spin)
 - Unlimited shift / explosion (slot machine ability)
-- God mode (base HP can't drop)
+- Free spins (keeps a free spin credit) *
+- God mode (base HP can't drop), set hearts *
 - Game speed x0.1 to x10
 
 **Combat**
 - Enemy HP, damage and move speed multipliers
 - Freeze enemies, one-hit kills
 - Ally damage and attack speed multipliers, invincible allies
+
+**Odds** *
+- Slot machine rarity: pin the chance of Uncommon / Rare / Legendary / Prismatic units; unpinned rarities share the rest. The help line shows the resulting odds live.
+- Presets: Original, Hard, Medium, Easy, Bliss
+- Allow locked rarities (otherwise rarities you haven't unlocked stay at 0%)
+- Fate Stones: multiply the Legendary + Prismatic weights
+- Class symbols: pin the chance of Warrior / Archer / Spearman / Cavalry / Mage / Duelist
+- Joker chance (0-5%, the game's cap) and a guaranteed Joker line on the middle row
+
+Features marked * are adapted from [Slotbound OddsMod](https://github.com/TokioKaze/-Slotbound-OddsMod-) by TokioKaze (see [Credits](#credits)).
 
 **Unlocks**
 - All upgrades, all stages + difficulties. Turning them on saves a backup first; turning them off restores your previous state.
@@ -109,6 +121,12 @@ launch=..\Slotbound.exe
 - **"Could not start the game"**: start Slotbound yourself, then run `SlotMod.exe`, or set `launch=` in `SlotMod.ini`.
 - **A game update broke something**: the log names the failing part; open an issue with the log attached.
 - **Undo unlocks**: switch "All upgrades" / "All stages + difficulties" off again. The backup is in `SlotMod\slotmod_unlock_backup.txt`.
+
+## Credits
+
+- **Odds features** (slot rarity chances and presets, Fate Stone weights, class-symbol and Joker chances, guaranteed Joker line) and the free spins / set hearts / free Fate Stone reroll utilities are adapted from **[Slotbound OddsMod](https://github.com/TokioKaze/-Slotbound-OddsMod-) by [TokioKaze](https://github.com/TokioKaze)**, licensed under the **MIT License** (Copyright (c) 2026 TokioKaze).
+  OddsMod patches the game's data file instead; SlotMod applies the same ideas at runtime through its menu. The full license text is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+  If you only want odds tweaks with a ready-made installer, use OddsMod. Don't run both at the same time: SlotMod notices if OddsMod already hooked the odds and leaves them alone.
 
 ## Disclaimer
 
