@@ -771,6 +771,15 @@ local function absorbWindowOpen()
   return type(im) == "table" and type(im._modalHit) == "table" and im._modalHit.active == true
 end
 
+-- reasons the game waits for the player on this unit; absorbing more on top locks the game up
+local MAX_ABSORB_LV = 100 -- shown as "MAX" in the game
+local function mergeBlocked(t)
+  if t.pendingRank then return "rank up ready: promote the unit" end
+  local aw = t.awakening
+  if type(aw) == "table" and type(aw.pending) == "table" and next(aw.pending) ~= nil then return "trait choice ready: pick a trait" end
+  if (tonumber(t.absorbLV) or 0) >= MAX_ABSORB_LV then return "unit is at max level" end
+end
+
 local function mergeHovered()
   if M.merge then toast("Merge already running"); return end
   local b = bf()
@@ -779,7 +788,8 @@ local function mergeHovered()
   if absorbWindowOpen() then toast("Close the absorb window first"); return end
   local t = unitUnderCursor()
   if not t then toast("No unit under the cursor"); return end
-  if t.pendingRank then toast("Rank up ready: promote this unit first, then press F3 again"); return end
+  local why = mergeBlocked(t)
+  if why then toast("Can't merge: " .. why .. (why:find("max") and "" or ", then press F3 again")); return end
   local tp, list = unitPower(t), {}
   for _, u in ipairs(b.rosterUnits) do
     if u ~= t and u.sym == t.sym and MERGE_GRADES[u.grade or "normal"] and unitPower(u) < tp then list[#list + 1] = u end
@@ -815,8 +825,9 @@ local function stepMerge()
   -- never drop the next unit while the game waits for the player
   if absorbWindowOpen() then return end
   -- reaching a new rank needs a class choice; absorbing more on top of it locks the game up
-  if m.t.pendingRank then
-    finish("Merged " .. m.done .. ", rank up ready: promote the unit, then press F3 again")
+  local why = mergeBlocked(m.t)
+  if why then
+    finish("Merged " .. m.done .. ", " .. why .. (why:find("max") and "" or ", then press F3 again"))
     return
   end
   while true do
