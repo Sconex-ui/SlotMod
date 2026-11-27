@@ -128,6 +128,11 @@ launch=..\Slotbound.exe
   OddsMod patches the game's data file instead; SlotMod applies the same ideas at runtime through its menu. The full license text is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
   If you only want odds tweaks with a ready-made installer, use OddsMod. Don't run both at the same time: SlotMod notices if OddsMod already hooked the odds and leaves them alone.
 
+## License
+
+SlotMod is released under the [MIT License](LICENSE) (Copyright (c) 2026 Sconex-ui).
+Parts adapted from Slotbound OddsMod remain under its own MIT License (Copyright (c) 2026 TokioKaze), see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Disclaimer
 
 Not affiliated with or endorsed by the developers of Slotbound. Back up your save before using unlocks. Use at your own risk.
