@@ -5,6 +5,7 @@ An in-game mod menu for **Slotbound** (Windows). Every cheat is a switch you can
 ![SlotMod in game](images/overview.jpg)
 
 - **No game files are changed.** `SlotMod.exe` loads the mod into the running game; close the game and it's gone.
+- **Unit hotkeys.** Hover a unit and press **F2** to max it out or **F3** to merge the weaker units of its class into it.
 - **Hot reload.** The whole menu is one Lua file (`SlotMod/slotmod.lua`). Save it while the game runs and the changes apply within a second.
 - **Leaderboard-safe by default.** Online leaderboard uploads are blocked while the mod is loaded (can be turned off in the Unlocks tab).
 
@@ -46,8 +47,11 @@ An in-game mod menu for **Slotbound** (Windows). Every cheat is a switch you can
 - Enemy HP, damage and move speed multipliers
 - Freeze enemies, one-hit kills
 - Ally damage and attack speed multipliers, invincible allies
-- Max out units: hover a unit on your roster and press **F2** to raise it to max rank (absorb level and stats scale with it), or max out all units from the menu
-- Auto merge: hover a unit and press **F3** (outside a battle) to make it absorb every weaker Common/Uncommon unit of its class. It stops when the unit has a rank-up or trait choice ready (pick it, then press F3 again) or reaches LV 100
+- Max out all units (button in the menu)
+
+**Units (hotkeys, menu closed)**
+- **F2: max out.** Raises the unit under the cursor to max rank; its absorb level, attack and HP scale with it.
+- **F3: auto merge.** The unit under the cursor absorbs every weaker Common/Uncommon unit of its class, one after another, using the game's own absorb. Only outside a battle. It pauses when the unit has a rank-up or trait choice ready (pick it, then press F3 again) and stops at LV 100 (MAX). Units it couldn't merge go back to their place.
 
 **Odds** *
 - Slot machine rarity: pin the chance of Uncommon / Rare / Legendary / Prismatic units; unpinned rarities share the rest. The help line shows the resulting odds live.
